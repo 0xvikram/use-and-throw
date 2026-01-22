@@ -20,11 +20,10 @@ export default function Home() {
   const [txError, setTxError] = useState<string | null>(null);
 
   const explorerBase = useMemo(() => {
-    const c = wallet?.chain ?? chain;
-    if (c === "sepolia") return "https://sepolia.etherscan.io";
-    if (c === "holesky") return "https://holesky.etherscan.io";
+    if (chain === "sepolia") return "https://sepolia.etherscan.io";
+    if (chain === "holesky") return "https://holesky.etherscan.io";
     return "https://etherscan.io";
-  }, [wallet, chain]);
+  }, [chain]);
 
   const copyAddress = async () => {
     if (!wallet) return;
@@ -41,11 +40,12 @@ export default function Home() {
     setLoadingBalance(true);
     setBalanceError(null);
     try {
-      const rpc = chain === "sepolia"
-        ? "https://rpc.sepolia.org"
-        : chain === "holesky"
-        ? "https://ethereum-holesky.publicnode.com"
-        : "https://cloudflare-eth.com";
+      const rpc =
+        chain === "sepolia"
+          ? "https://ethereum-sepolia-rpc.publicnode.com"
+          : chain === "holesky"
+            ? "https://ethereum-holesky-rpc.publicnode.com"
+            : "https://cloudflare-eth.com";
       const provider = new JsonRpcProvider(rpc);
       const raw = await provider.getBalance(wallet.walletAddress);
       setBalance(formatEther(raw));
@@ -74,27 +74,52 @@ export default function Home() {
         value: string;
         timeStamp: string;
       };
-      const apiBase = wallet.chain === "sepolia"
-        ? "https://api-sepolia.etherscan.io/api"
-        : wallet.chain === "holesky"
-        ? "https://api-holesky.etherscan.io/api"
-        : "https://api.etherscan.io/api";
+      // Etherscan V2 API - unified endpoint with chainid parameter
+      const chainId = chain === "sepolia" ? "11155111" : chain === "holesky" ? "17000" : "1";
+      const apiBase = "https://api.etherscan.io/v2/api";
 
-      const url = `${apiBase}?module=account&action=txlist&address=${wallet.walletAddress}&startblock=0&endblock=99999999&page=1&offset=10&sort=desc&apikey=${apiKey}`;
+      const url = `${apiBase}?chainid=${chainId}&module=account&action=txlist&address=${wallet.walletAddress}&startblock=0&endblock=99999999&page=1&offset=10&sort=desc&apikey=${apiKey}`;
       const res = await fetch(url);
       const data = await res.json();
-      if (data.status !== "1" || !Array.isArray(data.result)) {
-        throw new Error("Invalid response");
+      console.log("Etherscan API response:", data);
+      console.log("Response status:", data.status);
+      console.log("Response message:", data.message);
+      console.log("Result type:", typeof data.result);
+      console.log("Result value:", data.result);
+      
+      // Handle case where result is a string (error message)
+      if (typeof data.result === "string") {
+        console.warn("API returned string result:", data.result);
+        setTxs([]);
+        return;
       }
-      setTxs(
-        data.result.map((t: EtherscanTx) => ({
-          hash: t.hash,
-          from: t.from,
-          to: t.to,
-          value: t.value,
-          timeStamp: t.timeStamp,
-        })),
-      );
+      
+      if (!data.result || !Array.isArray(data.result)) {
+        console.warn("No valid result array in API response");
+        setTxs([]);
+        return;
+      }
+      
+      if (data.status === "0" && data.message === "No transactions found") {
+        console.log("No transactions found for this address");
+        setTxs([]);
+        return;
+      }
+      
+      if (data.status === "1") {
+        setTxs(
+          data.result.map((t: EtherscanTx) => ({
+            hash: t.hash,
+            from: t.from,
+            to: t.to,
+            value: t.value,
+            timeStamp: t.timeStamp,
+          })),
+        );
+      } else {
+        console.warn("Unexpected API status:", data.status);
+        setTxs([]);
+      }
     } catch (err) {
       console.error("Tx fetch failed", err);
       setTxError("Could not fetch transactions.");
@@ -143,7 +168,9 @@ export default function Home() {
       <div style={{ display: "flex", gap: "0.75rem" }}>
         <select
           value={chain}
-          onChange={(e) => setChain(e.target.value as "ethereum" | "sepolia" | "holesky")}
+          onChange={(e) =>
+            setChain(e.target.value as "ethereum" | "sepolia" | "holesky")
+          }
           style={{
             padding: "0.5rem",
             borderRadius: 8,
@@ -218,98 +245,98 @@ export default function Home() {
 
         {wallet ? (
           <>
-          <ul
-            style={{
-              lineHeight: 1.7,
-              margin: 0,
-              paddingLeft: "1rem",
-              color: "#e5e7eb",
-            }}
-          >
-            <li>
-              <strong>Address:</strong>{" "}
-              <code style={{ background: "#111827", color: "#fefefe" }}>
-                {wallet.walletAddress}
-              </code>
-            </li>
-            <li>
-              <strong>Private key:</strong>{" "}
-              <code style={{ background: "#111827", color: "#fefefe" }}>
-                {wallet.privateKey}
-              </code>
-            </li>
-            <li>
-              <strong>Chain:</strong> {wallet.chain}
-            </li>
-            <li>
-              <strong>Balance:</strong>{" "}
-              {balance ? `${balance} ETH` : "Not checked"}
-              {balanceError ? (
-                <span style={{ color: "#f87171", marginLeft: "0.5rem" }}>
-                  {balanceError}
-                </span>
-              ) : null}
-            </li>
-            <li>
-              <a
-                href={`${explorerBase}/address/${wallet.walletAddress}`}
-                target="_blank"
-                rel="noreferrer"
-                style={{ color: "#93c5fd" }}
-              >
-                View activity on Etherscan
-              </a>
-            </li>
-          </ul>
-          <div style={{ marginTop: "0.75rem" }}>
-            <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>
-              Recent transactions
-            </div>
-            {txError && (
-              <p style={{ color: "#f87171", margin: 0 }}>{txError}</p>
-            )}
-            {!txs && !txError && (
-              <p style={{ color: "#9ca3af", margin: 0 }}>
-                Click &quot;Load activity&quot; to fetch recent transactions.
-              </p>
-            )}
-            {txs && txs.length === 0 && (
-              <p style={{ color: "#9ca3af", margin: 0 }}>
-                No transactions found for this address.
-              </p>
-            )}
-            {txs && txs.length > 0 && (
-              <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-                {txs.map((t) => (
-                  <li
-                    key={t.hash}
-                    style={{
-                      padding: "0.5rem 0",
-                      borderTop: "1px solid #1f2937",
-                      display: "flex",
-                      gap: "0.5rem",
-                      alignItems: "center",
-                    }}
-                  >
-                    <a
-                      href={`${explorerBase}/tx/${t.hash}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ color: "#93c5fd" }}
+            <ul
+              style={{
+                lineHeight: 1.7,
+                margin: 0,
+                paddingLeft: "1rem",
+                color: "#e5e7eb",
+              }}
+            >
+              <li>
+                <strong>Address:</strong>{" "}
+                <code style={{ background: "#111827", color: "#fefefe" }}>
+                  {wallet.walletAddress}
+                </code>
+              </li>
+              <li>
+                <strong>Private key:</strong>{" "}
+                <code style={{ background: "#111827", color: "#fefefe" }}>
+                  {wallet.privateKey}
+                </code>
+              </li>
+              <li>
+                <strong>Chain:</strong> {chain}
+              </li>
+              <li>
+                <strong>Balance:</strong>{" "}
+                {balance ? `${balance} ETH` : "Not checked"}
+                {balanceError ? (
+                  <span style={{ color: "#f87171", marginLeft: "0.5rem" }}>
+                    {balanceError}
+                  </span>
+                ) : null}
+              </li>
+              <li>
+                <a
+                  href={`${explorerBase}/address/${wallet.walletAddress}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: "#93c5fd" }}
+                >
+                  View activity on Etherscan
+                </a>
+              </li>
+            </ul>
+            <div style={{ marginTop: "0.75rem" }}>
+              <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>
+                Recent transactions
+              </div>
+              {txError && (
+                <p style={{ color: "#f87171", margin: 0 }}>{txError}</p>
+              )}
+              {!txs && !txError && (
+                <p style={{ color: "#9ca3af", margin: 0 }}>
+                  Click &quot;Load activity&quot; to fetch recent transactions.
+                </p>
+              )}
+              {txs && txs.length === 0 && (
+                <p style={{ color: "#9ca3af", margin: 0 }}>
+                  No transactions found for this address.
+                </p>
+              )}
+              {txs && txs.length > 0 && (
+                <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                  {txs.map((t) => (
+                    <li
+                      key={t.hash}
+                      style={{
+                        padding: "0.5rem 0",
+                        borderTop: "1px solid #1f2937",
+                        display: "flex",
+                        gap: "0.5rem",
+                        alignItems: "center",
+                      }}
                     >
-                      {t.hash.slice(0, 10)}…
-                    </a>
-                    <span style={{ color: "#9ca3af" }}>
-                      {new Date(Number(t.timeStamp) * 1000).toLocaleString()}
-                    </span>
-                    <span style={{ marginLeft: "auto" }}>
-                      {formatEther(t.value)} ETH
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+                      <a
+                        href={`${explorerBase}/tx/${t.hash}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: "#93c5fd" }}
+                      >
+                        {t.hash.slice(0, 10)}…
+                      </a>
+                      <span style={{ color: "#9ca3af" }}>
+                        {new Date(Number(t.timeStamp) * 1000).toLocaleString()}
+                      </span>
+                      <span style={{ marginLeft: "auto" }}>
+                        {formatEther(t.value)} ETH
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </>
         ) : (
           <p style={{ margin: 0, color: "#d1d5db" }}>

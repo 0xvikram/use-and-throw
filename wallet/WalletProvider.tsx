@@ -1,7 +1,13 @@
 "use client";
 
 import { Wallet as EthersWallet } from "ethers";
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
+} from "react";
 import type { ReactNode } from "react";
 import { Wallet } from "./types";
 
@@ -27,12 +33,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const generated = EthersWallet.createRandom();
     setWallet({
       walletId: generated.address,
-      chain,
       isActive: true,
       privateKey: generated.privateKey,
       walletAddress: generated.address,
     });
-  }, [chain]);
+  }, []);
   const clearBurner = useCallback(() => setWallet(undefined), []);
 
   const value = useMemo(
