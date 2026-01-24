@@ -7,10 +7,10 @@ import {
   BrowserProvider,
 } from "ethers";
 import { useWallet } from "@/wallet/WalletProvider";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 
 export default function Home() {
-  const { wallet, chain, setChain, createBurner, clearBurner } = useWallet();
+  const { wallet, chain, setChain, createBurner, clearBurner, setExpiry } = useWallet();
   const [balance, setBalance] = useState<string | null>(null);
   const [loadingBalance, setLoadingBalance] = useState(false);
   const [balanceError, setBalanceError] = useState<string | null>(null);
@@ -32,6 +32,10 @@ export default function Home() {
   const [fundingInProgress, setFundingInProgress] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
 
+  // Wallet expiry state
+  const [expiryMinutes, setExpiryMinutes] = useState(2); // default 2 minutes
+  const [timeRemaining, setTimeRemaining] = useState<string | null>(null);
+
   const chainHexMap: Record<"ethereum" | "sepolia" | "holesky", string> = {
     ethereum: "0x1",
     sepolia: "0xaa36a7",
@@ -46,6 +50,7 @@ export default function Home() {
     if (current.toLowerCase() === desiredChain.toLowerCase()) return;
     try {
       await provider.send("wallet_switchEthereumChain", [{ chainId: desiredChain }]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (switchErr: any) {
       if (switchErr?.code === 4902 || switchErr?.data?.originalError?.code === 4902) {
         alert("Please add this network in MetaMask first, then retry.");
@@ -56,9 +61,11 @@ export default function Home() {
 
   // Prefer the MetaMask provider in multi-wallet environments
   const getMetaMaskProvider = () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const eth: any = (window as any).ethereum;
     if (!eth) return null;
     if (eth.providers?.length) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const mm = eth.providers.find((p: any) => p.isMetaMask);
       if (mm) return mm;
     }
@@ -108,8 +115,10 @@ export default function Home() {
       }
 
       // First ensure correct network, then recreate provider to avoid network-changed errors
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const provider = new BrowserProvider(mm as any);
       await ensureCorrectNetwork(provider);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const freshProvider = new BrowserProvider(mm as any);
       const accounts = await freshProvider.send("eth_requestAccounts", []);
       setMetaMaskAddress(accounts[0]);
@@ -143,8 +152,10 @@ export default function Home() {
       }
 
       // Ensure correct network, then recreate provider/signer to avoid network change errors
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const provider = new BrowserProvider(mm as any);
       await ensureCorrectNetwork(provider);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const freshProvider = new BrowserProvider(mm as any);
       const signer = await freshProvider.getSigner();
 
@@ -264,6 +275,57 @@ export default function Home() {
     } finally {
       setLoadingTxs(false);
     }
+  };
+
+  // Format time remaining (HH:MM:SS)
+  const formatTimeRemaining = (seconds: number): string => {
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    if (hours > 0) {
+      return `${hours}h ${mins}m ${secs}s`;
+    }
+    return `${mins}m ${secs}s`;
+  };
+
+  // Timer countdown effect
+  // Drive countdown off wallet.expiresAt for per-wallet sync
+  useEffect(() => {
+    if (!wallet || !wallet.expiresAt) {
+      setTimeRemaining(null);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      const now = Date.now();
+      const remainingMs = wallet.expiresAt! - now;
+
+      if (remainingMs <= 0) {
+        clearInterval(interval);
+        clearBurner();
+        setTimeRemaining(null);
+        alert("Burner wallet expired!");
+      } else {
+        setTimeRemaining(formatTimeRemaining(Math.ceil(remainingMs / 1000)));
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [wallet, clearBurner]);
+
+  // Override createBurner to set timer
+  // Optional timer: apply only when user chooses
+  const startTimer = () => {
+    if (!wallet) return;
+    const mins = Math.max(2, Math.min(1440, expiryMinutes));
+    const expiresAt = Date.now() + mins * 60 * 1000;
+    setExpiry(expiresAt);
+  };
+
+  const cancelTimer = () => {
+    if (!wallet) return;
+    setExpiry(undefined);
+    setTimeRemaining(null);
   };
 
   const buttonStyle: React.CSSProperties = {
@@ -432,7 +494,7 @@ export default function Home() {
             <option value="sepolia">Sepolia</option>
             <option value="holesky">Holesky</option>
           </select>
-          <button style={buttonStyle} onClick={createBurner}>
+          <button style={buttonStyle} onClick={() => createBurner()}>
             Create burner
           </button>
           <button style={ghostButton} onClick={clearBurner} disabled={!wallet}>
@@ -456,6 +518,87 @@ export default function Home() {
             {loadingTxs ? "Loading..." : "Load activity"}
           </button>
         </div>
+
+        {/* Wallet Expiry Timer Section */}
+        {wallet && (
+          <div
+            style={{
+              border: "2px solid #fbbf24",
+              borderRadius: "12px",
+              padding: "1rem",
+              background: "rgba(251, 191, 36, 0.08)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "1rem",
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <div style={{ color: "#fbbf24", fontWeight: 700, fontSize: "1.1rem", marginBottom: "0.25rem" }}>
+                ⏱️ Wallet Expiry
+              </div>
+              {timeRemaining && (
+                <div
+                  style={{
+                    fontSize: "1.3rem",
+                    fontWeight: 900,
+                    color: "#fbbf24",
+                    fontFamily: "monospace",
+                    letterSpacing: "2px",
+                  }}
+                >
+                  {timeRemaining}
+                </div>
+              )}
+              {!timeRemaining && wallet?.expiresAt && (
+                <div style={{ color: "#ffffff", opacity: 0.7, fontSize: "0.9rem" }}>
+                  Timer initializing…
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap" }}>
+              <div>
+                <label
+                  style={{
+                    color: "#ffffff",
+                    fontSize: "0.85rem",
+                    marginRight: "0.5rem",
+                    fontWeight: 600,
+                  }}
+                >
+                  Expiry (min):
+                </label>
+                <input
+                  type="range"
+                  min="2"
+                  max="1440"
+                  value={expiryMinutes}
+                  onChange={(e) => setExpiryMinutes(parseInt(e.target.value))}
+                  style={{
+                    width: "150px",
+                    cursor: "pointer",
+                  }}
+                />
+                <div style={{ color: "#ffffff", fontSize: "0.8rem", marginTop: "0.25rem" }}>
+                  {expiryMinutes < 60
+                    ? `${expiryMinutes}m`
+                    : `${Math.floor(expiryMinutes / 60)}h ${expiryMinutes % 60}m`}
+                </div>
+              </div>
+              {wallet?.expiresAt ? (
+                <button onClick={cancelTimer} style={ghostButton}>
+                  Cancel timer
+                </button>
+              ) : (
+                <button onClick={startTimer} style={buttonStyle}>
+                  Start timer
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         <section
           style={{

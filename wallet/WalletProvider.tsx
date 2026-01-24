@@ -15,8 +15,9 @@ type WalletContextValue = {
   wallet: Wallet | undefined;
   chain: "ethereum" | "sepolia" | "holesky";
   setChain: (c: "ethereum" | "sepolia" | "holesky") => void;
-  createBurner: () => void;
+  createBurner: (expiresAt?: number) => void;
   clearBurner: () => void;
+  setExpiry: (expiresAt?: number) => void;
 };
 
 export const WalletContext = createContext<WalletContextValue | undefined>(
@@ -29,20 +30,26 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     "ethereum",
   );
 
-  const createBurner = useCallback(() => {
+  const createBurner = useCallback((expiresAt?: number) => {
     const generated = EthersWallet.createRandom();
     setWallet({
       walletId: generated.address,
       isActive: true,
       privateKey: generated.privateKey,
       walletAddress: generated.address,
+      createdAt: Date.now(),
+      expiresAt,
     });
   }, []);
   const clearBurner = useCallback(() => setWallet(undefined), []);
 
+  const setExpiry = useCallback((expiresAt?: number) => {
+    setWallet((prev) => (prev ? { ...prev, expiresAt } : prev));
+  }, []);
+
   const value = useMemo(
-    () => ({ wallet, chain, setChain, createBurner, clearBurner }),
-    [wallet, chain, createBurner, clearBurner],
+    () => ({ wallet, chain, setChain, createBurner, clearBurner, setExpiry }),
+    [wallet, chain, createBurner, clearBurner, setExpiry],
   );
 
   return (
