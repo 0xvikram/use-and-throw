@@ -5,6 +5,8 @@ import {
   formatEther,
   parseEther,
   BrowserProvider,
+  Wallet as EthersWallet,
+  isAddress,
 } from "ethers";
 import { useWallet } from "@/wallet/WalletProvider";
 import { useMemo, useState, useEffect } from "react";
@@ -31,6 +33,10 @@ export default function Home() {
   const [fundAmount, setFundAmount] = useState("0.01");
   const [fundingInProgress, setFundingInProgress] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  // Send from burner state
+  const [sendTo, setSendTo] = useState("");
+  const [sendAmount, setSendAmount] = useState("0.001");
+  const [sendingBurner, setSendingBurner] = useState(false);
 
   // Wallet expiry state
   const [expiryMinutes, setExpiryMinutes] = useState(2); // default 2 minutes
@@ -70,6 +76,13 @@ export default function Home() {
       if (mm) return mm;
     }
     return eth.isMetaMask ? eth : eth;
+  };
+
+  // RPC helper per chain
+  const getRpcUrl = (): string => {
+    if (chain === "sepolia") return "https://ethereum-sepolia-rpc.publicnode.com";
+    if (chain === "holesky") return "https://ethereum-holesky-rpc.publicnode.com";
+    return "https://cloudflare-eth.com";
   };
 
   const explorerBase = useMemo(() => {
@@ -328,12 +341,51 @@ export default function Home() {
     setTimeRemaining(null);
   };
 
+  // Send ETH from burner wallet
+  const sendFromBurner = async () => {
+    if (!wallet) {
+      alert("Create a burner wallet first");
+      return;
+    }
+    if (!isAddress(sendTo)) {
+      alert("Enter a valid recipient address");
+      return;
+    }
+    let valueWei;
+    try {
+      valueWei = parseEther(sendAmount);
+    } catch {
+      alert("Enter a valid amount in ETH");
+      return;
+    }
+    try {
+      setSendingBurner(true);
+      const rpc = getRpcUrl();
+      const provider = new JsonRpcProvider(rpc);
+      const signer = new EthersWallet(wallet.privateKey, provider);
+      const tx = await signer.sendTransaction({ to: sendTo, value: valueWei });
+      alert(`Transaction sent! Hash: ${tx.hash}`);
+      await tx.wait();
+      alert("Transaction confirmed!");
+      // Refresh balance
+      await fetchBalance();
+      setSendTo("");
+      setSendAmount("0.001");
+    } catch (err) {
+      console.error("Send from burner failed", err);
+      const message = err instanceof Error ? err.message : "Unknown error";
+      alert(`Failed to send: ${message}`);
+    } finally {
+      setSendingBurner(false);
+    }
+  };
+
   const buttonStyle: React.CSSProperties = {
     padding: "0.6rem 1rem",
     borderRadius: "8px",
-    border: "2px solid #fbbf24",
-    background: "#1a1a1a",
-    color: "#fbbf24",
+    border: "2px solid #7dd3fc",
+    background: "#121212",
+    color: "#7dd3fc",
     cursor: "pointer",
     fontSize: "0.95rem",
     fontWeight: 600,
@@ -342,8 +394,8 @@ export default function Home() {
 
   const ghostButton: React.CSSProperties = {
     ...buttonStyle,
-    background: "rgba(251, 191, 36, 0.1)",
-    color: "#fbbf24",
+    background: "rgba(125, 211, 252, 0.12)",
+    color: "#7dd3fc",
   };
 
   return (
@@ -364,8 +416,8 @@ export default function Home() {
           transform: "translate(-50%, -50%)",
           fontSize: "clamp(3rem, 15vw, 10rem)",
           fontWeight: 900,
-          color: "#fbbf24",
-          opacity: 0.25,
+          color: "#7dd3fc",
+          opacity: 0.18,
           userSelect: "none",
           pointerEvents: "none",
           whiteSpace: "nowrap",
@@ -421,10 +473,10 @@ export default function Home() {
         {/* MetaMask Connection Section */}
         <div
           style={{
-            border: "2px solid #fbbf24",
+            border: "2px solid #7dd3fc",
             borderRadius: "12px",
             padding: "1rem",
-            background: "rgba(251, 191, 36, 0.05)",
+            background: "rgba(125, 211, 252, 0.08)",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
@@ -482,9 +534,9 @@ export default function Home() {
             style={{
               padding: "0.6rem 1rem",
               borderRadius: 8,
-              border: "2px solid #fbbf24",
-              background: "#1a1a1a",
-              color: "#fbbf24",
+              border: "2px solid #7dd3fc",
+              background: "#121212",
+              color: "#7dd3fc",
               fontSize: "0.95rem",
               cursor: "pointer",
               fontWeight: 600,
@@ -523,10 +575,10 @@ export default function Home() {
         {wallet && (
           <div
             style={{
-              border: "2px solid #fbbf24",
+              border: "2px solid #7dd3fc",
               borderRadius: "12px",
               padding: "1rem",
-              background: "rgba(251, 191, 36, 0.08)",
+              background: "rgba(125, 211, 252, 0.1)",
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
@@ -535,7 +587,7 @@ export default function Home() {
             }}
           >
             <div>
-              <div style={{ color: "#fbbf24", fontWeight: 700, fontSize: "1.1rem", marginBottom: "0.25rem" }}>
+              <div style={{ color: "#7dd3fc", fontWeight: 700, fontSize: "1.1rem", marginBottom: "0.25rem" }}>
                 ⏱️ Wallet Expiry
               </div>
               {timeRemaining && (
@@ -543,7 +595,7 @@ export default function Home() {
                   style={{
                     fontSize: "1.3rem",
                     fontWeight: 900,
-                    color: "#fbbf24",
+                    color: "#7dd3fc",
                     fontFamily: "monospace",
                     letterSpacing: "2px",
                   }}
@@ -557,7 +609,6 @@ export default function Home() {
                 </div>
               )}
             </div>
-
             <div style={{ display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap" }}>
               <div>
                 <label
@@ -568,23 +619,52 @@ export default function Home() {
                     fontWeight: 600,
                   }}
                 >
-                  Expiry (min):
+                  Expiry:
                 </label>
-                <input
-                  type="range"
-                  min="2"
-                  max="1440"
-                  value={expiryMinutes}
-                  onChange={(e) => setExpiryMinutes(parseInt(e.target.value))}
-                  style={{
-                    width: "150px",
-                    cursor: "pointer",
-                  }}
-                />
-                <div style={{ color: "#ffffff", fontSize: "0.8rem", marginTop: "0.25rem" }}>
-                  {expiryMinutes < 60
-                    ? `${expiryMinutes}m`
-                    : `${Math.floor(expiryMinutes / 60)}h ${expiryMinutes % 60}m`}
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <button
+                    onClick={() => setExpiryMinutes((m) => Math.max(2, m - 1))}
+                    style={{
+                      ...ghostButton,
+                      padding: "0.3rem 0.6rem",
+                      borderRadius: "6px",
+                      fontSize: "1rem",
+                      lineHeight: 1,
+                    }}
+                    aria-label="Decrease expiry"
+                  >
+                    −
+                  </button>
+                  <div
+                    style={{
+                      minWidth: "90px",
+                      textAlign: "center",
+                      background: "rgba(125, 211, 252, 0.1)",
+                      border: "1px solid #7dd3fc",
+                      color: "#ffffff",
+                      padding: "0.4rem 0.6rem",
+                      borderRadius: "6px",
+                      fontFamily: "monospace",
+                      fontWeight: 700,
+                    }}
+                  >
+                    {expiryMinutes < 60
+                      ? `${expiryMinutes}m`
+                      : `${Math.floor(expiryMinutes / 60)}h ${expiryMinutes % 60}m`}
+                  </div>
+                  <button
+                    onClick={() => setExpiryMinutes((m) => Math.min(1440, m + 1))}
+                    style={{
+                      ...ghostButton,
+                      padding: "0.3rem 0.6rem",
+                      borderRadius: "6px",
+                      fontSize: "1rem",
+                      lineHeight: 1,
+                    }}
+                    aria-label="Increase expiry"
+                  >
+                    +
+                  </button>
                 </div>
               </div>
               {wallet?.expiresAt ? (
@@ -602,14 +682,14 @@ export default function Home() {
 
         <section
           style={{
-            border: "2px solid #fbbf24",
+            border: "2px solid #7dd3fc",
             borderRadius: "16px",
             padding: "1.5rem",
             background: "rgba(0, 0, 0, 0.6)",
             backdropFilter: "blur(10px)",
             WebkitBackdropFilter: "blur(10px)",
             color: "#ffffff",
-            boxShadow: "0 8px 32px 0 rgba(251, 191, 36, 0.2)",
+            boxShadow: "0 8px 32px 0 rgba(125, 211, 252, 0.2)",
           }}
         >
           <div
@@ -627,7 +707,7 @@ export default function Home() {
               style={{
                 fontSize: "0.85rem",
                 color: "#000000",
-                background: wallet ? "#fbbf24" : "#d97706",
+                background: wallet ? "#7dd3fc" : "#374151",
                 border: "none",
                 padding: "0.25rem 0.75rem",
                 borderRadius: "999px",
@@ -663,13 +743,13 @@ export default function Home() {
                   <code
                     style={{
                       display: "block",
-                      background: "rgba(251, 191, 36, 0.1)",
+                      background: "rgba(125, 211, 252, 0.1)",
                       padding: "0.75rem",
                       borderRadius: "8px",
                       color: "#ffffff",
                       fontSize: "0.85rem",
                       wordBreak: "break-all",
-                      border: "1px solid #fbbf24",
+                      border: "1px solid #7dd3fc",
                     }}
                   >
                     {wallet.walletAddress}
@@ -698,8 +778,8 @@ export default function Home() {
                     <button
                       onClick={() => setShowPrivateKey(!showPrivateKey)}
                       style={{
-                        background: "rgba(251, 191, 36, 0.2)",
-                        border: "1px solid #fbbf24",
+                        background: "rgba(125, 211, 252, 0.2)",
+                        border: "1px solid #7dd3fc",
                         borderRadius: "6px",
                         padding: "0.25rem 0.5rem",
                         fontSize: "0.75rem",
@@ -714,13 +794,13 @@ export default function Home() {
                   <code
                     style={{
                       display: "block",
-                      background: "rgba(251, 191, 36, 0.1)",
+                      background: "rgba(125, 211, 252, 0.1)",
                       padding: "0.75rem",
                       borderRadius: "8px",
                       color: "#ffffff",
                       fontSize: "0.85rem",
                       wordBreak: "break-all",
-                      border: "1px solid #fbbf24",
+                      border: "1px solid #7dd3fc",
                     }}
                   >
                     {showPrivateKey
@@ -750,10 +830,10 @@ export default function Home() {
                     </div>
                     <div
                       style={{
-                        background: "rgba(251, 191, 36, 0.1)",
+                        background: "rgba(125, 211, 252, 0.1)",
                         padding: "0.75rem",
                         borderRadius: "8px",
-                        border: "1px solid #fbbf24",
+                        border: "1px solid #7dd3fc",
                         fontSize: "0.9rem",
                         textTransform: "capitalize",
                       }}
@@ -775,10 +855,10 @@ export default function Home() {
                     </div>
                     <div
                       style={{
-                        background: "rgba(251, 191, 36, 0.1)",
+                        background: "rgba(125, 211, 252, 0.1)",
                         padding: "0.75rem",
                         borderRadius: "8px",
-                        border: "1px solid #fbbf24",
+                        border: "1px solid #7dd3fc",
                         fontSize: "0.9rem",
                       }}
                     >
@@ -802,10 +882,10 @@ export default function Home() {
                 {metaMaskConnected && (
                   <div
                     style={{
-                      border: "2px solid rgba(251, 191, 36, 0.5)",
+                      border: "2px solid rgba(125, 211, 252, 0.5)",
                       borderRadius: "8px",
                       padding: "1rem",
-                      background: "rgba(251, 191, 36, 0.05)",
+                      background: "rgba(125, 211, 252, 0.06)",
                     }}
                   >
                     <div
@@ -834,7 +914,7 @@ export default function Home() {
                           flex: 1,
                           padding: "0.6rem",
                           borderRadius: "6px",
-                          border: "1px solid #fbbf24",
+                          border: "1px solid #7dd3fc",
                           background: "rgba(0, 0, 0, 0.5)",
                           color: "#ffffff",
                           fontSize: "0.9rem",
@@ -853,6 +933,72 @@ export default function Home() {
                     </div>
                   </div>
                 )}
+
+                {/* Send from Burner Wallet Section */}
+                <div
+                  style={{
+                    border: "2px solid rgba(125, 211, 252, 0.5)",
+                    borderRadius: "8px",
+                    padding: "1rem",
+                    background: "rgba(125, 211, 252, 0.06)",
+                    marginTop: "1rem",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "0.9rem",
+                      fontWeight: 600,
+                      marginBottom: "0.5rem",
+                    }}
+                  >
+                    🔄 Send from Burner
+                  </div>
+                  <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.5rem" }}>
+                    <input
+                      type="text"
+                      value={sendTo}
+                      onChange={(e) => setSendTo(e.target.value)}
+                      placeholder="Recipient address (0x...)"
+                      style={{
+                        flex: 2,
+                        padding: "0.6rem",
+                        borderRadius: "6px",
+                        border: "1px solid #7dd3fc",
+                        background: "rgba(0, 0, 0, 0.5)",
+                        color: "#ffffff",
+                        fontSize: "0.9rem",
+                        fontFamily: "monospace",
+                      }}
+                    />
+                    <input
+                      type="number"
+                      step="0.0001"
+                      min="0"
+                      value={sendAmount}
+                      onChange={(e) => setSendAmount(e.target.value)}
+                      placeholder="Amount"
+                      style={{
+                        flex: 1,
+                        padding: "0.6rem",
+                        borderRadius: "6px",
+                        border: "1px solid #7dd3fc",
+                        background: "rgba(0, 0, 0, 0.5)",
+                        color: "#ffffff",
+                        fontSize: "0.9rem",
+                      }}
+                    />
+                    <button
+                      onClick={sendFromBurner}
+                      disabled={sendingBurner}
+                      style={{ ...buttonStyle, padding: "0.6rem 1.25rem" }}
+                    >
+                      {sendingBurner ? "Sending..." : "Send"}
+                    </button>
+                  </div>
+                  <p style={{ color: "#ffffff", opacity: 0.6, fontSize: "0.8rem", margin: 0 }}>
+                    This sends ETH from the burner using its private key.
+                  </p>
+                </div>
 
                 <a
                   href={`${explorerBase}/address/${wallet.walletAddress}`}
@@ -876,9 +1022,9 @@ export default function Home() {
                     width: "100%",
                     padding: "0.75rem",
                     borderRadius: "8px",
-                    border: "2px solid #fbbf24",
-                    background: "rgba(251, 191, 36, 0.1)",
-                    color: "#fbbf24",
+                    border: "2px solid #7dd3fc",
+                    background: "rgba(125, 211, 252, 0.12)",
+                    color: "#7dd3fc",
                     fontWeight: 700,
                     fontSize: "0.95rem",
                     cursor: "pointer",
@@ -890,7 +1036,7 @@ export default function Home() {
 
               <div
                 style={{
-                  borderTop: "2px solid rgba(251, 191, 36, 0.3)",
+                  borderTop: "2px solid rgba(125, 211, 252, 0.25)",
                   paddingTop: "1rem",
                 }}
               >
@@ -948,8 +1094,8 @@ export default function Home() {
                         key={t.hash}
                         style={{
                           padding: "0.75rem",
-                          background: "rgba(251, 191, 36, 0.1)",
-                          border: "1px solid rgba(251, 191, 36, 0.4)",
+                          background: "rgba(125, 211, 252, 0.1)",
+                          border: "1px solid rgba(125, 211, 252, 0.35)",
                           borderRadius: "8px",
                           display: "flex",
                           flexDirection: "column",
@@ -1040,17 +1186,17 @@ export default function Home() {
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              background: "#1a1a1a",
-              border: "2px solid #fbbf24",
+              background: "#121212",
+              border: "2px solid #7dd3fc",
               borderRadius: "16px",
               padding: "2rem",
               maxWidth: 500,
               width: "100%",
-              boxShadow: "0 8px 32px 0 rgba(251, 191, 36, 0.3)",
+              boxShadow: "0 8px 32px 0 rgba(125, 211, 252, 0.3)",
             }}
           >
             <h2
-              style={{ color: "#fbbf24", marginTop: 0, marginBottom: "1rem" }}
+              style={{ color: "#7dd3fc", marginTop: 0, marginBottom: "1rem" }}
             >
               🔐 Export to MetaMask
             </h2>
@@ -1075,13 +1221,13 @@ export default function Home() {
               <code
                 style={{
                   display: "block",
-                  background: "rgba(251, 191, 36, 0.1)",
+                  background: "rgba(125, 211, 252, 0.1)",
                   padding: "1rem",
                   borderRadius: "8px",
-                  color: "#fbbf24",
+                  color: "#7dd3fc",
                   fontSize: "0.85rem",
                   wordBreak: "break-all",
-                  border: "1px solid #fbbf24",
+                  border: "1px solid #7dd3fc",
                   marginBottom: "0.75rem",
                 }}
               >
@@ -1093,8 +1239,8 @@ export default function Home() {
                   width: "100%",
                   padding: "0.75rem",
                   borderRadius: "8px",
-                  border: "2px solid #fbbf24",
-                  background: "#fbbf24",
+                  border: "2px solid #7dd3fc",
+                  background: "#7dd3fc",
                   color: "#000000",
                   fontWeight: 700,
                   fontSize: "0.95rem",
@@ -1117,7 +1263,7 @@ export default function Home() {
             >
               <div
                 style={{
-                  color: "#fbbf24",
+                  color: "#7dd3fc",
                   fontWeight: 600,
                   marginBottom: "0.5rem",
                   fontSize: "0.9rem",
@@ -1162,8 +1308,8 @@ export default function Home() {
                 width: "100%",
                 padding: "0.75rem",
                 borderRadius: "8px",
-                border: "2px solid #fbbf24",
-                background: "rgba(251, 191, 36, 0.1)",
+                border: "2px solid #7dd3fc",
+                background: "rgba(125, 211, 252, 0.12)",
                 color: "#ffffff",
                 fontWeight: 600,
                 fontSize: "0.95rem",
